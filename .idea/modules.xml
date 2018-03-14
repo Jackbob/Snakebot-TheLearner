@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectModuleManager">
+    <modules>
+      <module fileurl="file://$PROJECT_DIR$/Snakebot-TheLearner.iml" filepath="$PROJECT_DIR$/Snakebot-TheLearner.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/Snakebot-TheLearner_main.iml" filepath="$PROJECT_DIR$/.idea/modules/Snakebot-TheLearner_main.iml" group="Snakebot-TheLearner" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/Snakebot-TheLearner_test.iml" filepath="$PROJECT_DIR$/.idea/modules/Snakebot-TheLearner_test.iml" group="Snakebot-TheLearner" />
+    </modules>
+  </component>
+</project>

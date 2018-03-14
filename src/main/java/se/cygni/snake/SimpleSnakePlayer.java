@@ -15,24 +15,80 @@ import se.cygni.snake.api.util.GameSettingsUtils;
 import se.cygni.snake.client.AnsiPrinter;
 import se.cygni.snake.client.BaseSnakeClient;
 import se.cygni.snake.client.MapUtil;
+//import sun.jvm.hotspot.runtime.Thread;
 
+import java.io.*;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Random;
-import java.util.HashMap;
-import java.io.*;
 
 public class SimpleSnakePlayer extends BaseSnakeClient {
 
-  public class QLearner {
+    public class StateObject{
+        public int[][] seenWorld = new int[16][16];
+    }
 
-    private HashMap qlearnMap;
+    public class QLearner {
 
-      public QLearner(){
-        qlearnMap = new HashMap();
-      }
+        private HashMap<StateObject, SnakeDirection[]> QTable;
 
-  }
+          public QLearner(){
+
+              try {
+                  FileInputStream fileIn = new FileInputStream("QTable.ser");
+                  ObjectInputStream in = new ObjectInputStream(fileIn);
+                  QTable = (HashMap) in.readObject();
+                  in.close();
+                  fileIn.close();
+              } catch (IOException i) {
+                  i.printStackTrace();
+                  QTable = new HashMap<>();
+              } catch (ClassNotFoundException c) {
+                  System.out.println("QTable class not found");
+                  c.printStackTrace();
+                  return;
+              }
+
+          }
+
+          public void saveLearning(){
+              try {
+                  FileOutputStream fileOut = new FileOutputStream("QTable.ser");
+                  ObjectOutputStream out = new ObjectOutputStream(fileOut);
+                  out.writeObject(QTable);
+                  out.close();
+                  fileOut.close();
+                  System.out.printf("Serialized data is saved in QTable.ser");
+              } catch (IOException i) {
+                  i.printStackTrace();
+              }
+          }
+
+
+          public SnakeDirection explore(MapUtil mapUtil){
+              List<SnakeDirection> directions = new ArrayList<>();
+
+              // Let's see in which directions I can move
+              for (SnakeDirection direction : SnakeDirection.values()) {
+                  if (mapUtil.canIMoveInDirection(direction)) {
+                      directions.add(direction);
+                  }
+              }
+
+              Random r = new Random();
+              SnakeDirection chosenDirection = SnakeDirection.DOWN;
+
+              // Choose a random direction
+              if (!directions.isEmpty())
+                  chosenDirection = directions.get(r.nextInt(directions.size()));
+
+              return chosenDirection;
+          }
+
+    }
+
+    private QLearner snakeQLearner = new QLearner();
 
     private static final Logger LOGGER = LoggerFactory.getLogger(SimpleSnakePlayer.class);
 
@@ -44,7 +100,7 @@ public class SimpleSnakePlayer extends BaseSnakeClient {
     private static  final int SERVER_PORT = 80;
 
     private static final GameMode GAME_MODE = GameMode.TRAINING;
-    private static final String SNAKE_NAME = "The Simple Snake";
+    private static final String SNAKE_NAME = "Hssssss";
 
     // Set to false if you don't want the game world printed every game tick.
     private static final boolean ANSI_PRINTER_ACTIVE = false;
@@ -84,6 +140,7 @@ public class SimpleSnakePlayer extends BaseSnakeClient {
 
         Thread thread = new Thread(task);
         thread.start();
+
     }
 
     @Override
@@ -93,21 +150,7 @@ public class SimpleSnakePlayer extends BaseSnakeClient {
         // MapUtil contains lot's of useful methods for querying the map!
         MapUtil mapUtil = new MapUtil(mapUpdateEvent.getMap(), getPlayerId());
 
-        List<SnakeDirection> directions = new ArrayList<>();
-
-        // Let's see in which directions I can move
-        for (SnakeDirection direction : SnakeDirection.values()) {
-            if (mapUtil.canIMoveInDirection(direction)) {
-                directions.add(direction);
-            }
-        }
-
-        Random r = new Random();
-        SnakeDirection chosenDirection = SnakeDirection.DOWN;
-
-        // Choose a random direction
-        if (!directions.isEmpty())
-            chosenDirection = directions.get(r.nextInt(directions.size()));
+        SnakeDirection chosenDirection = snakeQLearner.explore(mapUtil);
 
         // Register action here!
         registerMove(mapUpdateEvent.getGameTick(), chosenDirection);
@@ -135,6 +178,7 @@ public class SimpleSnakePlayer extends BaseSnakeClient {
     @Override
     public void onGameEnded(GameEndedEvent gameEndedEvent) {
         LOGGER.debug("GameEndedEvent: " + gameEndedEvent);
+        snakeQLearner.saveLearning();
     }
 
     @Override
