@@ -6,32 +6,41 @@ import org.springframework.util.concurrent.ListenableFuture;
 import org.springframework.web.socket.WebSocketSession;
 import se.cygni.snake.api.event.*;
 import se.cygni.snake.api.exception.InvalidPlayerName;
-import se.cygni.snake.api.model.GameMode;
-import se.cygni.snake.api.model.GameSettings;
-import se.cygni.snake.api.model.PlayerPoints;
-import se.cygni.snake.api.model.SnakeDirection;
+import se.cygni.snake.api.model.*;
 import se.cygni.snake.api.response.PlayerRegistered;
 import se.cygni.snake.api.util.GameSettingsUtils;
 import se.cygni.snake.client.AnsiPrinter;
 import se.cygni.snake.client.BaseSnakeClient;
+import se.cygni.snake.client.MapCoordinate;
 import se.cygni.snake.client.MapUtil;
 //import sun.jvm.hotspot.runtime.Thread;
 
 import java.io.*;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Random;
+import java.util.*;
 
 public class SimpleSnakePlayer extends BaseSnakeClient {
 
-    public class StateObject{
-        public int[][] seenWorld = new int[16][16];
+    public class StateObject implements Serializable{
+        public boolean[][] seenWorld = new boolean[7][7];
+        public boolean dead = false;
+
+        @Override
+        public int hashCode() {
+            return Arrays.deepHashCode(seenWorld);
+        }
     }
 
     public class QLearner {
 
-        private HashMap<StateObject, SnakeDirection[]> QTable;
+        private HashMap<StateObject, float[]> QTable;
+        private StateObject prevState;
+        private SnakeDirection prevDir;
+        private boolean snakeDeath = false;
+        public boolean TRAINING = true;
+        private boolean readSuccess = false;
+        private final float EXPLORE_FACTOR = 0.7f;
+        private final float LR = 0.5f;
+        private final float DF = 0.8f;
 
           public QLearner(){
 
@@ -41,32 +50,73 @@ public class SimpleSnakePlayer extends BaseSnakeClient {
                   QTable = (HashMap) in.readObject();
                   in.close();
                   fileIn.close();
+                  readSuccess = true;
               } catch (IOException i) {
                   i.printStackTrace();
                   QTable = new HashMap<>();
               } catch (ClassNotFoundException c) {
                   System.out.println("QTable class not found");
                   c.printStackTrace();
-                  return;
+                  QTable = new HashMap<>();
               }
 
           }
 
-          public void saveLearning(){
-              try {
-                  FileOutputStream fileOut = new FileOutputStream("QTable.ser");
-                  ObjectOutputStream out = new ObjectOutputStream(fileOut);
-                  out.writeObject(QTable);
-                  out.close();
-                  fileOut.close();
-                  System.out.printf("Serialized data is saved in QTable.ser");
-              } catch (IOException i) {
-                  i.printStackTrace();
+          private void saveLearning(){
+              if(readSuccess) {
+                  try {
+                      FileOutputStream fileOut = new FileOutputStream("QTable.ser");
+                      ObjectOutputStream out = new ObjectOutputStream(fileOut);
+                      out.writeObject(QTable);
+                      out.close();
+                      fileOut.close();
+                      System.out.printf("Serialized QLearning is saved in QTable.ser");
+                  } catch (IOException i) {
+                      i.printStackTrace();
+                  }
               }
           }
 
+          public SnakeDirection getMovement(MapUtil mapUtil){
 
-          public SnakeDirection explore(MapUtil mapUtil){
+              StateObject state = createStateObject(mapUtil);
+              setRewards(state);
+              prevState = state;
+
+              return explore(mapUtil);
+          }
+
+          private void setRewards(StateObject state){
+              int prevDirIndex = getDirIndex(prevDir);
+              float[] storedActionRewards = QTable.get(prevState);
+              if(storedActionRewards != null){
+                  storedActionRewards = new float[4];
+                  Arrays.fill(storedActionRewards,0);
+              }
+              if(state.dead){
+                  storedActionRewards[prevDirIndex] = -Float.MAX_VALUE;
+              }
+              else{
+                  int stateReward = 0;
+                  for(int x = -1; x<=1; x++){
+                      for(int y=-1; y<=1;y++){
+                          if(state.seenWorld[3+x][3+y])
+                            stateReward--;
+                      }
+                  }
+
+                  stateReward += 3;
+                  storedActionRewards[prevDirIndex] = (1-LR)*storedActionRewards[0] + LR*(stateReward);
+                  LOGGER.info("Reward: ", stateReward);
+              }
+
+              QTable.put(state, storedActionRewards);
+              LOGGER.info("Reward: sdfhsdfhsdfh");
+
+          }
+
+
+          private SnakeDirection explore(MapUtil mapUtil){
               List<SnakeDirection> directions = new ArrayList<>();
 
               // Let's see in which directions I can move
@@ -84,6 +134,51 @@ public class SimpleSnakePlayer extends BaseSnakeClient {
                   chosenDirection = directions.get(r.nextInt(directions.size()));
 
               return chosenDirection;
+          }
+
+
+          //Creates a storable state object for the QTable / HashMap
+          private StateObject createStateObject(MapUtil mapUtil){
+              StateObject state = new StateObject();
+              MapCoordinate headPos = mapUtil.getMyPosition();
+              for(int x = 0; x<7; x++){
+                  for(int y = 0; y<7; y++){
+
+
+                      MapCoordinate checkCoord = new MapCoordinate(headPos.x - 3 + x,
+                                                                   headPos.y - 3 + y);
+
+                      if(mapUtil.isTileAvailableForMovementTo(checkCoord)){
+                          state.seenWorld[x][y] = true;
+                      }
+                      else{
+                          state.seenWorld[x][y] = false;
+                          System.out.print(checkCoord.toString()+ "\n");
+                      }
+                  }
+              }
+
+              return state;
+          }
+
+          private int getDirIndex(SnakeDirection dir){
+              switch (dir){
+                  case LEFT:
+                      return 0;
+                  case RIGHT:
+                      return 1;
+                  case UP:
+                      return 2;
+                  case DOWN:
+                      return 3;
+                  default:
+                      return 0;
+              }
+          }
+
+          private StateObject predictNewState(StateObject currentState){
+
+              return new StateObject();
           }
 
     }
@@ -150,7 +245,7 @@ public class SimpleSnakePlayer extends BaseSnakeClient {
         // MapUtil contains lot's of useful methods for querying the map!
         MapUtil mapUtil = new MapUtil(mapUpdateEvent.getMap(), getPlayerId());
 
-        SnakeDirection chosenDirection = snakeQLearner.explore(mapUtil);
+        SnakeDirection chosenDirection = snakeQLearner.getMovement(mapUtil);
 
         // Register action here!
         registerMove(mapUpdateEvent.getGameTick(), chosenDirection);
@@ -167,6 +262,9 @@ public class SimpleSnakePlayer extends BaseSnakeClient {
         LOGGER.info("A snake {} died by {}",
                 snakeDeadEvent.getPlayerId(),
                 snakeDeadEvent.getDeathReason());
+
+        if(snakeDeadEvent.getPlayerId().equals(SNAKE_NAME))
+            snakeQLearner.snakeDeath = true;
     }
 
     @Override
